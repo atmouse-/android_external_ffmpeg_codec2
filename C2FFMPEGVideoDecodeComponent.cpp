@@ -1,5 +1,6 @@
 /*
  * Copyright 2022 Michael Goffioul <michael.goffioul@gmail.com>
+ * Copyright 2025 BlissLabs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,7 +44,8 @@ C2FFMPEGVideoDecodeComponent::C2FFMPEGVideoDecodeComponent(
       mFFMPEGInitialized(false),
       mCodecAlreadyOpened(false),
       mExtradataReady(false),
-      mEOSSignalled(false) {
+      mEOSSignalled(false),
+      mUtils(std::make_unique<C2FFMPEGVideoUtils>()) {
     ALOGD("C2FFMPEGVideoDecodeComponent: mediaType = %s", componentInfo->mediaType);
 }
 
@@ -264,20 +266,27 @@ c2_status_t C2FFMPEGVideoDecodeComponent::getOutputBuffer(C2GraphicView* outBuff
     C2PlanarLayout layout = outBuffer->layout();
     struct SwsContext* currentImgConvertCtx = mImgConvertCtx;
 
-    data[0] = outBuffer->data()[C2PlanarLayout::PLANE_Y];
-    data[1] = outBuffer->data()[C2PlanarLayout::PLANE_U];
-    data[2] = outBuffer->data()[C2PlanarLayout::PLANE_V];
-    linesize[0] = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
-    linesize[1] = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
-    linesize[2] = layout.planes[C2PlanarLayout::PLANE_V].rowInc;
+    if (mUtils->getPixelFormat(false) == HAL_PIXEL_FORMAT_YV12) {
+		data[0] = outBuffer->data()[C2PlanarLayout::PLANE_Y];
+		data[1] = outBuffer->data()[C2PlanarLayout::PLANE_U];
+		data[2] = outBuffer->data()[C2PlanarLayout::PLANE_V];
+		linesize[0] = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
+		linesize[1] = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
+		linesize[2] = layout.planes[C2PlanarLayout::PLANE_V].rowInc;
+    } else {
+        data[0] = outBuffer->data()[C2PlanarLayout::PLANE_R];
+        linesize[0] = layout.planes[C2PlanarLayout::PLANE_R].rowInc;
+        data[1] = data[2] = data[3] = nullptr;
+        linesize[1] = linesize[2] = linesize[3] = 0;
+    }
 
     mImgConvertCtx = sws_getCachedContext(currentImgConvertCtx,
            mFrame->width, mFrame->height, (AVPixelFormat)mFrame->format,
-           mFrame->width, mFrame->height, AV_PIX_FMT_YUV420P,
+           mFrame->width, mFrame->height, mUtils->getAVFormat(),
            SWS_BICUBIC, NULL, NULL, NULL);
     if (mImgConvertCtx && mImgConvertCtx != currentImgConvertCtx) {
         ALOGD("getOutputBuffer: created video converter - %s => %s",
-              av_get_pix_fmt_name((AVPixelFormat)mFrame->format), av_get_pix_fmt_name(AV_PIX_FMT_YUV420P));
+              av_get_pix_fmt_name((AVPixelFormat)mFrame->format), av_get_pix_fmt_name(mUtils->getAVFormat()));
 
     } else if (! mImgConvertCtx) {
         ALOGE("getOutputBuffer: cannot initialize the conversion context");
@@ -465,12 +474,12 @@ c2_status_t C2FFMPEGVideoDecodeComponent::outputFrame(
 
     std::shared_ptr<C2GraphicBlock> block;
 
-    err = pool->fetchGraphicBlock(mFrame->width, mFrame->height, HAL_PIXEL_FORMAT_YV12,
+    err = pool->fetchGraphicBlock(mFrame->width, mFrame->height, mUtils->getPixelFormat(false),
                                   { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE }, &block);
 
     if (err != C2_OK) {
         ALOGE("outputFrame: failed to fetch graphic block %d x %d (%x) err = %d",
-              mFrame->width, mFrame->height, HAL_PIXEL_FORMAT_YV12, err);
+              mFrame->width, mFrame->height, mUtils->getPixelFormat(false), err);
         return C2_CORRUPTED;
     }
 
