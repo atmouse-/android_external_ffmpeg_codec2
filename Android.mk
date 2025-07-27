@@ -56,8 +56,38 @@ LOCAL_SHARED_LIBRARIES := \
     libswscale \
     libutils
 
+FFMPEG_ARCH := $(TARGET_ARCH)
+
+FFMPEG_2ND_ARCH := false
+ifneq ($(TARGET_2ND_ARCH_VARIANT),)
+   ifeq ($(FFMPEG_MULTILIB),32)
+      FFMPEG_2ND_ARCH := true
+   endif
+endif
+
+ifeq ($(FFMPEG_2ND_ARCH), true)
+    FFMPEG_ARCH := $(TARGET_2ND_ARCH)
+endif
+
+ifeq ($(FFMPEG_ARCH),arm64)
+    FFMPEG_ARCH := aarch64
+endif
+
+FFMPEG_ARCH_VARIANT := $(TARGET_ARCH_VARIANT)
+ifeq ($(FFMPEG_2ND_ARCH), true)
+   FFMPEG_ARCH_VARIANT := $(TARGET_2ND_ARCH_VARIANT)
+endif
+
+ifneq ($(filter x86 x86_64, $(FFMPEG_ARCH)),)
+    TARGET_CONFIG := config-$(FFMPEG_ARCH)-$(FFMPEG_ARCH_VARIANT).h
+    TARGET_CONFIG_ASM := config-$(FFMPEG_ARCH).asm
+else
+    TARGET_CONFIG := config-$(FFMPEG_ARCH_VARIANT).h
+    TARGET_CONFIG_ASM := config-$(FFMPEG_ARCH_VARIANT).asm
+endif
+
 LOCAL_CFLAGS := \
-    -DTARGET_CONFIG=\"config-$(TARGET_ARCH_VARIANT).h\"
+    -DTARGET_CONFIG=\"$(TARGET_CONFIG)\"
 
 include $(BUILD_EXECUTABLE)
 
